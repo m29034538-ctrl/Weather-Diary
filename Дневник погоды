@@ -1,0 +1,188 @@
+import json
+import os
+from datetime import datetime
+import tkinter as tk
+from tkinter import ttk, messagebox
+
+DATA_FILE = "weather_data.json"
+
+
+class WeatherDiary:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Weather Diary")
+        self.root.geometry("750x550")
+
+        self.records = []
+        self.load_from_file()
+
+        # Поля ввода
+        input_frame = ttk.LabelFrame(root, text="Новая запись", padding=10)
+        input_frame.pack(fill="x", padx=10, pady=5)
+
+        ttk.Label(input_frame, text="Дата (ГГГГ-ММ-ДД):").grid(row=0, column=0, sticky="w", padx=5, pady=5)
+        self.date_entry = ttk.Entry(input_frame, width=15)
+        self.date_entry.grid(row=0, column=1, padx=5, pady=5)
+
+        ttk.Label(input_frame, text="Температура (°C):").grid(row=0, column=2, sticky="w", padx=5, pady=5)
+        self.temp_entry = ttk.Entry(input_frame, width=10)
+        self.temp_entry.grid(row=0, column=3, padx=5, pady=5)
+
+        ttk.Label(input_frame, text="Описание:").grid(row=1, column=0, sticky="w", padx=5, pady=5)
+        self.desc_entry = ttk.Entry(input_frame, width=40)
+        self.desc_entry.grid(row=1, column=1, columnspan=2, padx=5, pady=5, sticky="w")
+
+        self.rain_var = tk.BooleanVar()
+        ttk.Checkbutton(input_frame, text="Осадки", variable=self.rain_var).grid(row=1, column=3, padx=5, pady=5)
+
+        ttk.Button(input_frame, text="Добавить запись", command=self.add_record).grid(row=2, column=0, columnspan=4, pady=10)
+
+        # Фильтры
+        filter_frame = ttk.LabelFrame(root, text="Фильтрация", padding=10)
+        filter_frame.pack(fill="x", padx=10, pady=5)
+
+        ttk.Label(filter_frame, text="Фильтр по дате (ГГГГ-ММ-ДД):").grid(row=0, column=0, sticky="w", padx=5)
+        self.filter_date_entry = ttk.Entry(filter_frame, width=15)
+        self.filter_date_entry.grid(row=0, column=1, padx=5)
+        ttk.Button(filter_frame, text="Применить фильтр даты", command=self.filter_by_date).grid(row=0, column=2, padx=5)
+
+        ttk.Label(filter_frame, text="Температура выше (°C):").grid(row=0, column=3, sticky="w", padx=5)
+        self.filter_temp_entry = ttk.Entry(filter_frame, width=10)
+        self.filter_temp_entry.grid(row=0, column=4, padx=5)
+        ttk.Button(filter_frame, text="Применить фильтр температуры", command=self.filter_by_temp).grid(row=0, column=5, padx=5)
+
+        ttk.Button(filter_frame, text="Сбросить фильтр", command=self.load_data_to_table).grid(row=0, column=6, padx=10)
+
+        # Таблица для отображения
+        columns = ("date", "temperature", "description", "rain")
+        self.tree = ttk.Treeview(root, columns=columns, show="headings")
+        self.tree.heading("date", text="Дата")
+        self.tree.heading("temperature", text="Температура")
+        self.tree.heading("description", text="Описание")
+        self.tree.heading("rain", text="Осадки")
+        self.tree.column("date", width=100)
+        self.tree.column("temperature", width=80)
+        self.tree.column("description", width=300)
+        self.tree.column("rain", width=60)
+        self.tree.pack(fill="both", expand=True, padx=10, pady=10)
+
+        # Кнопки работы с файлом
+        btn_frame = ttk.Frame(root)
+        btn_frame.pack(fill="x", padx=10, pady=5)
+        ttk.Button(btn_frame, text="Сохранить в JSON", command=self.save_to_file).pack(side="left", padx=5)
+        ttk.Button(btn_frame, text="Загрузить из JSON", command=self.load_from_file_prompt).pack(side="left", padx=5)
+
+        self.load_data_to_table()
+
+    # ---------- Валидация ----------
+    def validate_date(self, date_str):
+        try:
+            datetime.strptime(date_str, "%Y-%m-%d")
+            return True
+        except ValueError:
+            return False
+
+    def validate_temp(self, temp_str):
+        try:
+            float(temp_str)
+            return True
+        except ValueError:
+            return False
+
+    # ---------- Добавление записи ----------
+    def add_record(self):
+        date = self.date_entry.get().strip()
+        temp = self.temp_entry.get().strip()
+        description = self.desc_entry.get().strip()
+        rain = self.rain_var.get()
+
+        if not self.validate_date(date):
+            messagebox.showerror("Ошибка", "Неверный формат даты. Используйте ГГГГ-ММ-ДД")
+            return
+        if not self.validate_temp(temp):
+            messagebox.showerror("Ошибка", "Температура должна быть числом")
+            return
+        if not description:
+            messagebox.showerror("Ошибка", "Описание не может быть пустым")
+            return
+
+        self.records.append({
+            "date": date,
+            "temperature": float(temp),
+            "description": description,
+            "rain": "Да" if rain else "Нет"
+        })
+        # Сортировка по дате
+        self.records.sort(key=lambda x: x["date"])
+        self.load_data_to_table()
+        self.clear_inputs()
+
+    def clear_inputs(self):
+        self.date_entry.delete(0, tk.END)
+        self.temp_entry.delete(0, tk.END)
+        self.desc_entry.delete(0, tk.END)
+        self.rain_var.set(False)
+
+    # ---------- Отображение данных ----------
+    def load_data_to_table(self, records_to_show=None):
+        for row in self.tree.get_children():
+            self.tree.delete(row)
+        data = records_to_show if records_to_show is not None else self.records
+        for rec in data:
+            self.tree.insert("", tk.END, values=(rec["date"], rec["temperature"], rec["description"], rec["rain"]))
+
+    # ---------- Фильтрация ----------
+    def filter_by_date(self):
+        filter_date = self.filter_date_entry.get().strip()
+        if not filter_date:
+            messagebox.showwarning("Предупреждение", "Введите дату для фильтрации")
+            return
+        if not self.validate_date(filter_date):
+            messagebox.showerror("Ошибка", "Неверный формат даты в фильтре")
+            return
+        filtered = [rec for rec in self.records if rec["date"] == filter_date]
+        if not filtered:
+            messagebox.showinfo("Результат", "Нет записей за указанную дату")
+        self.load_data_to_table(filtered)
+
+    def filter_by_temp(self):
+        temp_str = self.filter_temp_entry.get().strip()
+        if not temp_str:
+            messagebox.showwarning("Предупреждение", "Введите температуру для фильтрации")
+            return
+        if not self.validate_temp(temp_str):
+            messagebox.showerror("Ошибка", "Температура должна быть числом")
+            return
+        min_temp = float(temp_str)
+        filtered = [rec for rec in self.records if rec["temperature"] > min_temp]
+        if not filtered:
+            messagebox.showinfo("Результат", f"Нет записей с температурой выше {min_temp}°C")
+        self.load_data_to_table(filtered)
+
+    # ---------- Работа с JSON ----------
+    def save_to_file(self):
+        try:
+            with open(DATA_FILE, "w", encoding="utf-8") as f:
+                json.dump(self.records, f, ensure_ascii=False, indent=4)
+            messagebox.showinfo("Успех", f"Данные сохранены в {DATA_FILE}")
+        except Exception as e:
+            messagebox.showerror("Ошибка", f"Не удалось сохранить: {e}")
+
+    def load_from_file(self):
+        if os.path.exists(DATA_FILE):
+            try:
+                with open(DATA_FILE, "r", encoding="utf-8") as f:
+                    self.records = json.load(f)
+                self.load_data_to_table()
+            except Exception as e:
+                messagebox.showerror("Ошибка", f"Не удалось загрузить: {e}")
+
+    def load_from_file_prompt(self):
+        self.load_from_file()
+        messagebox.showinfo("Загрузка", f"Данные загружены из {DATA_FILE}")
+
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = WeatherDiary(root)
+    root.mainloop()
